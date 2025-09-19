@@ -54,7 +54,7 @@ void setup()
   display.clear();
 
   // 顯示初始提示 "rEAd" (準備)
-  uint8_t ready[] = {0x50, 0x7C, 0x77, 0x5E}; // r-E-A-d
+  uint8_t ready[] = {0x50, 0x79, 0x77, 0x5E}; // r-E-A-d
   display.setSegments(ready);
 
   Serial.println("系統就緒，等待按鈕按下...");
@@ -77,7 +77,7 @@ void loop()
 
     // 延遲後回到準備狀態
     delay(2000);
-    uint8_t ready[] = {0x50, 0x7C, 0x77, 0x5E}; // r-E-A-d
+    uint8_t ready[] = {0x50, 0x79, 0x77, 0x5E}; // r-E-A-d
     display.setSegments(ready);
 
     current_state = IDLE;
