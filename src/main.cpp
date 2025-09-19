@@ -21,10 +21,11 @@ volatile bool display_update = false; // 顯示更新標誌
 const int GAME_TIME = 90; // 遊戲時間（秒）- 1分30秒
 
 // 分數和 IR 感測器相關變數
-volatile int score = 0;              // 進球分數
-int ir_analog_value = 0;             // IR 感測器類比數值
-int ir_digital_value = 0;            // IR 感測器數位數值
-volatile bool ball_detected = false; // 球體偵測標誌
+volatile int score = 0;                  // 進球分數
+int ir_analog_value = 0;                 // IR 感測器類比數值
+int ir_digital_value = 0;                // IR 感測器數位數值
+volatile bool ball_detected = false;     // 球體偵測標誌
+unsigned long detection_pause_until = 0; // 暫停偵測直到此時間點
 
 // 狀態枚舉
 enum GameState
@@ -80,17 +81,6 @@ void loop()
   // 讀取 IR 感測器數值
   ir_analog_value = analogRead(IR_ANALOG_PIN);    // 讀取類比數值 (0-1023)
   ir_digital_value = digitalRead(IR_DIGITAL_PIN); // 讀取數位數值 (0 或 1)
-
-  // 在 Serial 中顯示 IR 感測器數值（每 500ms 顯示一次）
-  static unsigned long last_ir_display = 0;
-  if (millis() - last_ir_display > 500)
-  {
-    Serial.print("IR 感測器 - 類比: ");
-    Serial.print(ir_analog_value);
-    Serial.print(", 數位: ");
-    Serial.println(ir_digital_value);
-    last_ir_display = millis();
-  }
 
   // 檢查是否需要更新顯示
   if (display_update)
@@ -191,7 +181,8 @@ void startCountdown()
   timer_active = true;
   current_state = COUNTING;
   display_update = true;
-  score = 0; // 重置分數
+  score = 0;                 // 重置分數
+  detection_pause_until = 0; // 重置暫停偵測時間
 
   // 立即顯示初始倒數時間 (分:秒格式)
   int minutes = countdown_time / 60;
@@ -269,56 +260,37 @@ void displayCountdown()
 // 檢查進球偵測
 void checkBallDetection()
 {
-  static int baseline_analog = 0;          // 基準類比值
-  static bool baseline_set = false;        // 是否已設定基準值
   static unsigned long last_detection = 0; // 上次偵測時間
 
-  // 設定基準值（遊戲開始後的前 3 秒）
-  if (!baseline_set && timer_active)
+  // 檢查是否在暫停偵測期間
+  if (millis() < detection_pause_until)
   {
-    static unsigned long baseline_start = 0;
-    if (baseline_start == 0)
-    {
-      baseline_start = millis();
-    }
-
-    if (millis() - baseline_start < 3000)
-    {
-      // 累積基準值
-      baseline_analog = (baseline_analog + ir_analog_value) / 2;
-      return;
-    }
-    else
-    {
-      baseline_set = true;
-      Serial.print("IR 基準值設定完成: ");
-      Serial.println(baseline_analog);
-    }
+    return; // 暫停偵測，直接返回
   }
 
-  // 如果基準值未設定，直接返回
-  if (!baseline_set)
-    return;
+  // 進球偵測邏輯：類比 < 550 或數位 = 0 (使用 OR 條件)
+  bool ball_present = (ir_analog_value < 550) || (ir_digital_value == 0);
 
-  // 進球偵測邏輯：類比值顯著下降表示有物體遮擋
-  int threshold = baseline_analog - 100; // 偵測閾值（可調整）
-
-  if (ir_analog_value < threshold && !ball_detected)
+  if (ball_present && !ball_detected)
   {
-    // 防誤判：確保間隔至少 1 秒
-    if (millis() - last_detection > 1000)
+    // 防誤判：確保間隔至少 200ms
+    if (millis() - last_detection > 200)
     {
       ball_detected = true;
       score++;
       last_detection = millis();
 
+      // 顯示分數
       Serial.print("*** 進球偵測！分數: ");
       Serial.println(score);
+
+      // 設定暫停偵測 1 秒
+      detection_pause_until = millis() + 1000;
     }
   }
 
-  // 重置偵測標誌（當感測器數值回到正常範圍）
-  if (ir_analog_value > threshold - 50)
+  // 重置偵測標誌（當感測器數值回到正常範圍且不在暫停期間）
+  if (!ball_present && millis() >= detection_pause_until)
   {
     ball_detected = false;
   }
