@@ -1,10 +1,15 @@
 #include <Arduino.h>
 #include <TM1637Display.h>
+#include <SoftwareSerial.h>
 
 // 引腳定義
 const int BUTTON_PIN = 2; // 按鈕連接到數位引腳2 (INT0)
 const int CLK_PIN = 3;    // TM1637 CLK 引腳
 const int DIO_PIN = 4;    // TM1637 DIO 引腳
+
+// MP3 模組引腳定義 (使用 SoftwareSerial)
+const int MP3_RX_PIN = 7; // MP3 模組 TX 連接到 Arduino 引腳 7
+const int MP3_TX_PIN = 8; // MP3 模組 RX 連接到 Arduino 引腳 8
 
 // TCRT5000 IR 感測器引腳
 const int IR_ANALOG_PIN = A0; // TCRT5000 類比輸出引腳 (AO)
@@ -12,6 +17,9 @@ const int IR_DIGITAL_PIN = 5; // TCRT5000 數位輸出引腳 (DO)
 
 // TM1637 顯示器物件
 TM1637Display display(CLK_PIN, DIO_PIN);
+
+// MP3 模組物件
+SoftwareSerial mp3Serial(MP3_RX_PIN, MP3_TX_PIN);
 
 // 計時器相關變數
 volatile int countdown_time = 0;      // 倒數時間（秒）
@@ -45,6 +53,11 @@ void buttonISR();
 void displayCountdown();
 void checkBallDetection(); // 檢查進球偵測
 
+// MP3 播放控制函數
+void mp3_initial();
+void mp3_start(uint8_t volume = 0x64, uint8_t song = 0x01);
+void mp3_stop();
+
 void setup()
 {
   // 初始化串列通信
@@ -68,6 +81,10 @@ void setup()
   // 初始化 TM1637 顯示器
   display.setBrightness(0x0a); // 設定亮度 (0-15)
   display.clear();
+
+  // 初始化 MP3 模組
+  mp3_initial();
+  Serial.println("MP3 模組已初始化");
 
   // 顯示初始提示 "rEAd" (準備)
   uint8_t ready[] = {0x50, 0x79, 0x77, 0x5E}; // r-E-A-d
@@ -181,6 +198,10 @@ void startCountdown()
   score = 0;                 // 重置分數
   detection_pause_until = 0; // 重置暫停偵測時間
 
+  // 播放第一首歌
+  mp3_start(100, 1); // 音量 100，播放第一首歌
+  Serial.println("開始播放音樂！");
+
   // 立即顯示初始倒數時間 (分:秒格式)
   int minutes = countdown_time / 60;
   int seconds = countdown_time % 60;
@@ -224,6 +245,10 @@ void displayCountdown()
   break;
 
   case FINISHED:
+    // 停止播放音樂（只執行一次）
+    mp3_stop();
+    Serial.println("停止播放音樂！");
+
     // 顯示 "0:00" 然後顯示分數
     display.showNumberDecEx(0, 0b01000000, true, 4, 0); // 顯示 0:00
     delay(1000);
@@ -280,5 +305,66 @@ void checkBallDetection()
   if (!ball_present && millis() >= detection_pause_until)
   {
     ball_detected = false;
+  }
+}
+
+// MP3 模組控制函數實現
+
+// 初始化 MP3 模組
+void mp3_initial()
+{
+  mp3Serial.begin(9600);
+  delay(500); // 等待 MP3 模組初始化
+}
+
+// 開始播放指定歌曲
+void mp3_start(uint8_t volume, uint8_t song)
+{
+  // 音量控制命令 (13)
+  // 命令格式: AA 13 01 VOL SM
+  uint8_t volumeCmd[5];
+  volumeCmd[0] = 0xAA;
+  volumeCmd[1] = 0x13;
+  volumeCmd[2] = 0x01;
+  volumeCmd[3] = volume;
+  volumeCmd[4] = volumeCmd[0] + volumeCmd[1] + volumeCmd[2] + volumeCmd[3]; // 檢查碼
+
+  for (int i = 0; i < 5; i++)
+  {
+    mp3Serial.write(volumeCmd[i]);
+  }
+
+  delay(100); // 短暫延遲
+
+  // 指定歌曲播放命令 (07)
+  // 命令格式: AA 07 02 filename(Hi) filename(Lw) SM
+  uint8_t playCmd[6];
+  playCmd[0] = 0xAA;
+  playCmd[1] = 0x07;
+  playCmd[2] = 0x02;
+  playCmd[3] = 0x00;                                                           // 音樂檔案開頭名稱的16進制
+  playCmd[4] = song;                                                           // 音樂檔案結尾名稱的16進制
+  playCmd[5] = playCmd[0] + playCmd[1] + playCmd[2] + playCmd[3] + playCmd[4]; // 檢查碼
+
+  for (int i = 0; i < 6; i++)
+  {
+    mp3Serial.write(playCmd[i]);
+  }
+}
+
+// 停止播放
+void mp3_stop()
+{
+  // 停止播放命令 (04)
+  // 命令格式: AA 04 00 AE
+  uint8_t stopCmd[4];
+  stopCmd[0] = 0xAA;
+  stopCmd[1] = 0x04;
+  stopCmd[2] = 0x00;
+  stopCmd[3] = 0xAE; // 固定檢查碼
+
+  for (int i = 0; i < 4; i++)
+  {
+    mp3Serial.write(stopCmd[i]);
   }
 }
