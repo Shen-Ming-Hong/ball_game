@@ -6,6 +6,10 @@ const int BUTTON_PIN = 2; // 按鈕連接到數位引腳2 (INT0)
 const int CLK_PIN = 3;    // TM1637 CLK 引腳
 const int DIO_PIN = 4;    // TM1637 DIO 引腳
 
+// TCRT5000 IR 感測器引腳
+const int IR_ANALOG_PIN = A0; // TCRT5000 類比輸出引腳 (AO)
+const int IR_DIGITAL_PIN = 5; // TCRT5000 數位輸出引腳 (DO)
+
 // TM1637 顯示器物件
 TM1637Display display(CLK_PIN, DIO_PIN);
 
@@ -15,6 +19,12 @@ volatile bool timer_active = false;   // 計時器是否啟動
 volatile bool display_update = false; // 顯示更新標誌
 
 const int GAME_TIME = 90; // 遊戲時間（秒）- 1分30秒
+
+// 分數和 IR 感測器相關變數
+volatile int score = 0;              // 進球分數
+int ir_analog_value = 0;             // IR 感測器類比數值
+int ir_digital_value = 0;            // IR 感測器數位數值
+volatile bool ball_detected = false; // 球體偵測標誌
 
 // 狀態枚舉
 enum GameState
@@ -32,6 +42,7 @@ void startCountdown();
 void stopCountdown();
 void buttonISR();
 void displayCountdown();
+void checkBallDetection(); // 檢查進球偵測
 
 void setup()
 {
@@ -42,6 +53,10 @@ void setup()
 
   // 設定按鈕引腳
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  // 設定 IR 感測器引腳
+  pinMode(IR_DIGITAL_PIN, INPUT); // 數位輸出引腳
+  // 類比引腳 (A0) 不需要 pinMode 設定
 
   // 設定外部中斷
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, RISING);
@@ -62,11 +77,32 @@ void setup()
 
 void loop()
 {
+  // 讀取 IR 感測器數值
+  ir_analog_value = analogRead(IR_ANALOG_PIN);    // 讀取類比數值 (0-1023)
+  ir_digital_value = digitalRead(IR_DIGITAL_PIN); // 讀取數位數值 (0 或 1)
+
+  // 在 Serial 中顯示 IR 感測器數值（每 500ms 顯示一次）
+  static unsigned long last_ir_display = 0;
+  if (millis() - last_ir_display > 500)
+  {
+    Serial.print("IR 感測器 - 類比: ");
+    Serial.print(ir_analog_value);
+    Serial.print(", 數位: ");
+    Serial.println(ir_digital_value);
+    last_ir_display = millis();
+  }
+
   // 檢查是否需要更新顯示
   if (display_update)
   {
     display_update = false;
     displayCountdown();
+  }
+
+  // 檢查進球偵測（僅在計時期間）
+  if (current_state == COUNTING)
+  {
+    checkBallDetection();
   }
 
   // 檢查計時是否結束
@@ -155,6 +191,7 @@ void startCountdown()
   timer_active = true;
   current_state = COUNTING;
   display_update = true;
+  score = 0; // 重置分數
 
   // 立即顯示初始倒數時間 (分:秒格式)
   int minutes = countdown_time / 60;
@@ -163,6 +200,7 @@ void startCountdown()
   display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
 
   Serial.println("\n=== 開始倒數計時！===");
+  Serial.println("分數已重置為 0");
 }
 
 // 停止倒數計時
@@ -191,7 +229,8 @@ void displayCountdown()
     if (seconds < 10)
       Serial.print("0"); // 補零
     Serial.print(seconds);
-    Serial.println("");
+    Serial.print(" | 分數: ");
+    Serial.println(score);
 
     // 在 TM1637 顯示器上以 MM:SS 格式顯示
     int display_value = minutes * 100 + seconds;                    // MMSS 格式
@@ -200,14 +239,23 @@ void displayCountdown()
   break;
 
   case FINISHED:
-    Serial.println("倒數計時: 0:00");
+    Serial.print("倒數計時: 0:00 | 最終分數: ");
+    Serial.println(score);
 
-    // 顯示 "0:00" 然後顯示 "End" 結束訊息
+    // 顯示 "0:00" 然後顯示分數
     display.showNumberDecEx(0, 0b01000000, true, 4, 0); // 顯示 0:00
     delay(1000);
+
+    // 顯示分數（最多 4 位數）
+    if (score <= 9999)
     {
-      uint8_t end_msg[] = {0x79, 0x54, 0x5E, 0x00}; // E-n-d-空白
-      display.setSegments(end_msg);
+      display.showNumberDec(score, false, 4, 0); // 顯示分數
+    }
+    else
+    {
+      // 如果分數超過 4 位數，顯示 "Hi" (高分)
+      uint8_t high_score[] = {0x76, 0x06, 0x00, 0x00}; // H-i--
+      display.setSegments(high_score);
     }
     break;
 
@@ -215,5 +263,63 @@ void displayCountdown()
   default:
     // 閒置狀態不需要特別處理倒數顯示
     break;
+  }
+}
+
+// 檢查進球偵測
+void checkBallDetection()
+{
+  static int baseline_analog = 0;          // 基準類比值
+  static bool baseline_set = false;        // 是否已設定基準值
+  static unsigned long last_detection = 0; // 上次偵測時間
+
+  // 設定基準值（遊戲開始後的前 3 秒）
+  if (!baseline_set && timer_active)
+  {
+    static unsigned long baseline_start = 0;
+    if (baseline_start == 0)
+    {
+      baseline_start = millis();
+    }
+
+    if (millis() - baseline_start < 3000)
+    {
+      // 累積基準值
+      baseline_analog = (baseline_analog + ir_analog_value) / 2;
+      return;
+    }
+    else
+    {
+      baseline_set = true;
+      Serial.print("IR 基準值設定完成: ");
+      Serial.println(baseline_analog);
+    }
+  }
+
+  // 如果基準值未設定，直接返回
+  if (!baseline_set)
+    return;
+
+  // 進球偵測邏輯：類比值顯著下降表示有物體遮擋
+  int threshold = baseline_analog - 100; // 偵測閾值（可調整）
+
+  if (ir_analog_value < threshold && !ball_detected)
+  {
+    // 防誤判：確保間隔至少 1 秒
+    if (millis() - last_detection > 1000)
+    {
+      ball_detected = true;
+      score++;
+      last_detection = millis();
+
+      Serial.print("*** 進球偵測！分數: ");
+      Serial.println(score);
+    }
+  }
+
+  // 重置偵測標誌（當感測器數值回到正常範圍）
+  if (ir_analog_value > threshold - 50)
+  {
+    ball_detected = false;
   }
 }
