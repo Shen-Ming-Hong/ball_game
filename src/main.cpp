@@ -98,9 +98,6 @@ void loop()
   // 檢查計時是否結束
   if (current_state == FINISHED)
   {
-    Serial.println("=== 遊戲時間結束！===");
-    Serial.println("按下按鈕開始新的倒數計時！");
-
     // 延遲後回到準備狀態
     delay(2000);
     uint8_t ready[] = {0x50, 0x79, 0x77, 0x5E}; // r-E-A-d
@@ -189,9 +186,6 @@ void startCountdown()
   int seconds = countdown_time % 60;
   int display_value = minutes * 100 + seconds;                    // MMSS 格式
   display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
-
-  Serial.println("\n=== 開始倒數計時！===");
-  Serial.println("分數已重置為 0");
 }
 
 // 停止倒數計時
@@ -230,9 +224,6 @@ void displayCountdown()
   break;
 
   case FINISHED:
-    Serial.print("倒數計時: 0:00 | 最終分數: ");
-    Serial.println(score);
-
     // 顯示 "0:00" 然後顯示分數
     display.showNumberDecEx(0, 0b01000000, true, 4, 0); // 顯示 0:00
     delay(1000);
@@ -279,10 +270,6 @@ void checkBallDetection()
       ball_detected = true;
       score++;
       last_detection = millis();
-
-      // 顯示分數
-      Serial.print("*** 進球偵測！分數: ");
-      Serial.println(score);
 
       // 設定暫停偵測 1 秒
       detection_pause_until = millis() + 1000;
