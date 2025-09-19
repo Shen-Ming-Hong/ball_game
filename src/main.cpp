@@ -38,12 +38,18 @@ unsigned long detection_pause_until = 0; // 暫停偵測直到此時間點
 // 狀態枚舉
 enum GameState
 {
-  IDLE,     // 閒置狀態
-  COUNTING, // 計時中
-  FINISHED  // 計時結束
+  IDLE,          // 閒置狀態
+  MUSIC_PLAYING, // 音樂播放中
+  COUNTING,      // 計時中
+  FINISHED       // 計時結束
 };
 
 volatile GameState current_state = IDLE;
+
+// 音樂播放相關變數
+unsigned long music_start_time = 0;           // 音樂開始播放時間
+const unsigned long MUSIC_01_DURATION = 3000; // 音樂01播放時長(毫秒) - 可根據實際音樂長度調整
+volatile bool music_finished = false;         // 音樂播放完成標誌
 
 // 函數宣告
 void setupTimer1();
@@ -98,6 +104,28 @@ void loop()
   // 讀取 IR 感測器數值
   ir_analog_value = analogRead(IR_ANALOG_PIN);    // 讀取類比數值 (0-1023)
   ir_digital_value = digitalRead(IR_DIGITAL_PIN); // 讀取數位數值 (0 或 1)
+
+  // 檢查音樂播放完成（僅在 MUSIC_PLAYING 狀態）
+  if (current_state == MUSIC_PLAYING)
+  {
+    if (millis() - music_start_time >= MUSIC_01_DURATION)
+    {
+      music_finished = true;
+      // 音樂播放完成，開始倒數計時
+      countdown_time = GAME_TIME;
+      timer_active = true;
+      current_state = COUNTING;
+      display_update = true;
+
+      Serial.println("開場音樂播放完成，開始倒數計時！");
+
+      // 立即顯示初始倒數時間 (分:秒格式)
+      int minutes = countdown_time / 60;
+      int seconds = countdown_time % 60;
+      int display_value = minutes * 100 + seconds;                    // MMSS 格式
+      display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
+    }
+  }
 
   // 檢查是否需要更新顯示
   if (display_update)
@@ -191,22 +219,22 @@ void setupTimer1()
 // 開始倒數計時
 void startCountdown()
 {
-  countdown_time = GAME_TIME;
-  timer_active = true;
-  current_state = COUNTING;
-  display_update = true;
+  // 重置遊戲狀態
   score = 0;                 // 重置分數
   detection_pause_until = 0; // 重置暫停偵測時間
+  music_finished = false;    // 重置音樂完成標誌
 
-  // 播放第一首歌
-  mp3_start(100, 1); // 音量 100，播放第一首歌
-  Serial.println("開始播放音樂！");
+  // 設定為音樂播放狀態
+  current_state = MUSIC_PLAYING;
+  music_start_time = millis();
 
-  // 立即顯示初始倒數時間 (分:秒格式)
-  int minutes = countdown_time / 60;
-  int seconds = countdown_time % 60;
-  int display_value = minutes * 100 + seconds;                    // MMSS 格式
-  display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
+  // 播放音樂01，音量80% (約128/255)
+  mp3_start(20, 1); // 80% 音量約為 51 (80% of 64)
+  Serial.println("開始播放開場音樂(01)！");
+
+  // 顯示播放音樂提示
+  uint8_t play_msg[] = {0x73, 0x38, 0x77, 0x6E}; // P-L-A-y
+  display.setSegments(play_msg);
 }
 
 // 停止倒數計時
@@ -245,9 +273,16 @@ void displayCountdown()
   break;
 
   case FINISHED:
-    // 停止播放音樂（只執行一次）
-    mp3_stop();
-    Serial.println("停止播放音樂！");
+  {
+    static bool end_sound_played = false; // 確保結束音效只播放一次
+
+    if (!end_sound_played)
+    {
+      // 播放結束音效03 (100%音量)
+      mp3_start(64, 3); // 100% 音量，播放第三首歌
+      Serial.println("遊戲結束！播放結束音效03");
+      end_sound_played = true;
+    }
 
     // 顯示 "0:00" 然後顯示分數
     display.showNumberDecEx(0, 0b01000000, true, 4, 0); // 顯示 0:00
@@ -257,18 +292,26 @@ void displayCountdown()
     if (score <= 9999)
     {
       display.showNumberDec(score, false, 4, 0); // 顯示分數
+      Serial.print("最終分數: ");
+      Serial.println(score);
     }
     else
     {
       // 如果分數超過 4 位數，顯示 "Hi" (高分)
       uint8_t high_score[] = {0x76, 0x06, 0x00, 0x00}; // H-i--
       display.setSegments(high_score);
+      Serial.println("恭喜！獲得超高分數！");
     }
-    break;
+
+    // 重置結束音效標誌，準備下一輪
+    end_sound_played = false;
+  }
+  break;
 
   case IDLE:
+  case MUSIC_PLAYING:
   default:
-    // 閒置狀態不需要特別處理倒數顯示
+    // 閒置狀態和音樂播放狀態不需要特別處理倒數顯示
     break;
   }
 }
@@ -298,6 +341,11 @@ void checkBallDetection()
 
       // 設定暫停偵測 1 秒
       detection_pause_until = millis() + 1000;
+
+      // 播放進球音效02 (100%音量)
+      mp3_start(64, 2); // 100% 音量，播放第二首歌
+      Serial.print("進球！播放音效02，目前分數: ");
+      Serial.println(score);
     }
   }
 
@@ -317,9 +365,13 @@ void mp3_initial()
   delay(500); // 等待 MP3 模組初始化
 }
 
-// 開始播放指定歌曲
+// 開始播放指定歌曲（音量範圍：0-64，對應0%-100%）
 void mp3_start(uint8_t volume, uint8_t song)
 {
+  // 確保音量在有效範圍內
+  if (volume > 64)
+    volume = 64;
+
   // 音量控制命令 (13)
   // 命令格式: AA 13 01 VOL SM
   uint8_t volumeCmd[5];
@@ -350,6 +402,12 @@ void mp3_start(uint8_t volume, uint8_t song)
   {
     mp3Serial.write(playCmd[i]);
   }
+
+  // 記錄播放資訊
+  Serial.print("MP3播放：音量 ");
+  Serial.print((volume * 100) / 64);
+  Serial.print("% | 歌曲 ");
+  Serial.println(song);
 }
 
 // 停止播放
@@ -367,4 +425,6 @@ void mp3_stop()
   {
     mp3Serial.write(stopCmd[i]);
   }
+
+  Serial.println("MP3播放停止");
 }
