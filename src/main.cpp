@@ -1,14 +1,20 @@
 #include <Arduino.h>
+#include <TM1637Display.h>
 
 // 引腳定義
 const int BUTTON_PIN = 2; // 按鈕連接到數位引腳2 (INT0)
+const int CLK_PIN = 3;    // TM1637 CLK 引腳
+const int DIO_PIN = 4;    // TM1637 DIO 引腳
+
+// TM1637 顯示器物件
+TM1637Display display(CLK_PIN, DIO_PIN);
 
 // 計時器相關變數
 volatile int countdown_time = 0;      // 倒數時間（秒）
 volatile bool timer_active = false;   // 計時器是否啟動
 volatile bool display_update = false; // 顯示更新標誌
 
-const int GAME_TIME = 30; // 遊戲時間（秒）
+const int GAME_TIME = 90; // 遊戲時間（秒）- 1分30秒
 
 // 狀態枚舉
 enum GameState
@@ -43,6 +49,14 @@ void setup()
   // 設定Timer1中斷
   setupTimer1();
 
+  // 初始化 TM1637 顯示器
+  display.setBrightness(0x0a); // 設定亮度 (0-15)
+  display.clear();
+
+  // 顯示初始提示 "rEAd" (準備)
+  uint8_t ready[] = {0x50, 0x7C, 0x77, 0x5E}; // r-E-A-d
+  display.setSegments(ready);
+
   Serial.println("系統就緒，等待按鈕按下...");
 }
 
@@ -60,6 +74,12 @@ void loop()
   {
     Serial.println("=== 遊戲時間結束！===");
     Serial.println("按下按鈕開始新的倒數計時！");
+
+    // 延遲後回到準備狀態
+    delay(2000);
+    uint8_t ready[] = {0x50, 0x7C, 0x77, 0x5E}; // r-E-A-d
+    display.setSegments(ready);
+
     current_state = IDLE;
   }
 
@@ -136,6 +156,12 @@ void startCountdown()
   current_state = COUNTING;
   display_update = true;
 
+  // 立即顯示初始倒數時間 (分:秒格式)
+  int minutes = countdown_time / 60;
+  int seconds = countdown_time % 60;
+  int display_value = minutes * 100 + seconds;                    // MMSS 格式
+  display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
+
   Serial.println("\n=== 開始倒數計時！===");
 }
 
@@ -153,16 +179,41 @@ void displayCountdown()
   switch (current_state)
   {
   case COUNTING:
+  {
+    // 計算分鐘和秒數
+    int minutes = countdown_time / 60;
+    int seconds = countdown_time % 60;
+
+    // 串列監視器顯示
     Serial.print("倒數計時: ");
-    Serial.print(countdown_time);
-    Serial.println(" 秒");
-    break;
+    Serial.print(minutes);
+    Serial.print(":");
+    if (seconds < 10)
+      Serial.print("0"); // 補零
+    Serial.print(seconds);
+    Serial.println("");
+
+    // 在 TM1637 顯示器上以 MM:SS 格式顯示
+    int display_value = minutes * 100 + seconds;                    // MMSS 格式
+    display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
+  }
+  break;
 
   case FINISHED:
-    Serial.println("倒數計時: 0 秒");
+    Serial.println("倒數計時: 0:00");
+
+    // 顯示 "0:00" 然後顯示 "End" 結束訊息
+    display.showNumberDecEx(0, 0b01000000, true, 4, 0); // 顯示 0:00
+    delay(1000);
+    {
+      uint8_t end_msg[] = {0x79, 0x54, 0x5E, 0x00}; // E-n-d-空白
+      display.setSegments(end_msg);
+    }
     break;
 
+  case IDLE:
   default:
+    // 閒置狀態不需要特別處理倒數顯示
     break;
   }
 }
