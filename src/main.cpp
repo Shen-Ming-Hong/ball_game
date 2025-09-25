@@ -51,13 +51,19 @@ unsigned long music_start_time = 0;           // 音樂開始播放時間
 const unsigned long MUSIC_01_DURATION = 3000; // 音樂01播放時長(毫秒) - 可根據實際音樂長度調整
 volatile bool music_finished = false;         // 音樂播放完成標誌
 
+// 燈光特效相關變數
+unsigned long last_light_update = 0;   // 上次燈光更新時間
+const unsigned long LIGHT_DELAY = 200; // 燈光切換間隔(毫秒)
+int light_position = 0;                // 目前燈光位置 (0-11, 外圈一圈12個位置)
+
 // 函數宣告
 void setupTimer1();
 void startCountdown();
 void stopCountdown();
 void buttonISR();
 void displayCountdown();
-void checkBallDetection(); // 檢查進球偵測
+void displayRotatingLight(); // 顯示燈光繞圈特效
+void checkBallDetection();   // 檢查進球偵測
 
 // MP3 播放控制函數
 void mp3_initial();
@@ -92,10 +98,6 @@ void setup()
   mp3_initial();
   Serial.println("MP3 模組已初始化");
 
-  // 顯示初始提示 "rEAd" (準備)
-  uint8_t ready[] = {0x50, 0x79, 0x77, 0x5E}; // r-E-A-d
-  display.setSegments(ready);
-
   Serial.println("系統就緒，等待按鈕按下...");
 }
 
@@ -104,6 +106,12 @@ void loop()
   // 讀取 IR 感測器數值
   ir_analog_value = analogRead(IR_ANALOG_PIN);    // 讀取類比數值 (0-1023)
   ir_digital_value = digitalRead(IR_DIGITAL_PIN); // 讀取數位數值 (0 或 1)
+
+  // 在閒置狀態顯示燈光繞圈特效
+  if (current_state == IDLE)
+  {
+    displayRotatingLight();
+  }
 
   // 檢查音樂播放完成（僅在 MUSIC_PLAYING 狀態）
   if (current_state == MUSIC_PLAYING)
@@ -145,10 +153,11 @@ void loop()
   {
     // 延遲後回到準備狀態
     delay(2000);
-    uint8_t ready[] = {0x50, 0x79, 0x77, 0x5E}; // r-E-A-d
-    display.setSegments(ready);
 
     current_state = IDLE;
+    // 重置燈光特效變數
+    light_position = 0;
+    last_light_update = millis();
   }
 
   // 主循環可以在這裡添加其他非時間關鍵的功能
@@ -432,4 +441,45 @@ void mp3_stop()
   }
 
   Serial.println("MP3播放停止");
+}
+
+// 顯示燈光繞圈特效（閒置狀態使用）
+void displayRotatingLight()
+{
+  // 檢查是否到了更新燈光的時間
+  if (millis() - last_light_update >= LIGHT_DELAY)
+  {
+    // 定義整個四位數字顯示器外圈的燈光路徑（純順時鐘）
+    // 路徑：頂部從左到右 -> 右側從上到下 -> 底部從右到左 -> 左側從下到上
+    uint8_t ring_patterns[12][4] = {
+        // 頂部橫段（從左到右：位置0-3）
+        {0x01, 0x00, 0x00, 0x00}, // 位置0: 第1位上段
+        {0x00, 0x01, 0x00, 0x00}, // 位置1: 第2位上段
+        {0x00, 0x00, 0x01, 0x00}, // 位置2: 第3位上段
+        {0x00, 0x00, 0x00, 0x01}, // 位置3: 第4位上段
+
+        // 右側豎段（從上到下：位置4-5）
+        {0x00, 0x00, 0x00, 0x02}, // 位置4: 第4位右上豎
+        {0x00, 0x00, 0x00, 0x04}, // 位置5: 第4位右下豎
+
+        // 底部橫段（從右到左：位置6-9）
+        {0x00, 0x00, 0x00, 0x08}, // 位置6: 第4位下段
+        {0x00, 0x00, 0x08, 0x00}, // 位置7: 第3位下段
+        {0x00, 0x08, 0x00, 0x00}, // 位置8: 第2位下段
+        {0x08, 0x00, 0x00, 0x00}, // 位置9: 第1位下段
+
+        // 左側豎段（從下到上：位置10-11）
+        {0x10, 0x00, 0x00, 0x00}, // 位置10: 第1位左下豎
+        {0x20, 0x00, 0x00, 0x00}  // 位置11: 第1位左上豎
+    };
+
+    // 顯示目前燈光位置
+    display.setSegments(ring_patterns[light_position]);
+
+    // 移動到下一個位置 (0-11 循環，完成一個完整的順時鐘圈)
+    light_position = (light_position + 1) % 12;
+
+    // 更新時間
+    last_light_update = millis();
+  }
 }
