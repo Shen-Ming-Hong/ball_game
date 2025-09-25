@@ -37,6 +37,32 @@ pio run --target upload    # 上傳到 Arduino UNO
 pio device monitor         # 串列監控 (9600 波特率)
 ```
 
+### 🚨 人工執行必要指令
+
+**AI 編程助手無法執行硬體相關操作，以下 PlatformIO 指令需要開發者手動執行：**
+
+```bash
+# 開發過程必執行指令
+pio run --target upload    # 上傳程式到 Arduino（需要硬體連接）
+pio device monitor         # 開啟串列監控觀察執行結果
+pio run --target clean     # 清理建置快取（解決編譯問題時）
+
+# 偵錯與測試指令
+pio device list            # 列出可用的序列埠裝置
+pio run --target compiledb # 生成編譯資料庫（IDE 智能提示用）
+
+# 依賴管理指令
+pio lib install            # 安裝新的函式庫依賴
+pio lib update             # 更新現有函式庫到最新版本
+```
+
+**執行時機說明：**
+
+-   程式碼修改後 → 執行 `pio run --target upload` 測試硬體反應
+-   感測器讀值異常 → 執行 `pio device monitor` 觀察串列輸出
+-   編譯錯誤 → 執行 `pio run --target clean` 後重新編譯
+-   新增硬體功能 → 可能需要 `pio lib install` 安裝對應函式庫
+
 ### 硬體連接標準
 
 **核心控制**:
@@ -147,3 +173,4 @@ Arduino UNO 僅 2KB SRAM，避免大型陣列或遞迴，優先使用常數和 v
 -   使用 `pio device monitor` 觀察串列輸出
 -   關鍵變數狀態列印在主循環中，非中斷內
 -   硬體問題優先檢查線路連接和電源
+-   **重要**: AI 助手只能修改程式碼，硬體測試需人工執行 `pio run --target upload`
