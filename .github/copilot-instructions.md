@@ -2,52 +2,84 @@
 
 ## 專案概述
 
-這是一個基於 Arduino UNO 的槌球遊戲計時系統，使用 PlatformIO 開發，採用中斷驅動架構確保精確計時。
+這是一個基於 Arduino UNO 的槌球遊戲機系統，集成計時、多點進球偵測、音效播放和 LED 顯示功能。使用 PlatformIO 開發，採用中斷驅動架構確保精確計時與即時響應。
 
 ## 🏗️ 核心架構模式
 
 ### 中斷驅動設計
 
--   **Timer1 硬體中斷**: 1 秒精確倒數計時，配置在 `setupTimer1()` 中
+-   **Timer1 硬體中斷**: 1 秒精確倒數計時（120 秒遊戲時間），配置在 `setupTimer1()` 中
 -   **外部中斷**: 按鈕響應使用 `digitalPinToInterrupt(BUTTON_PIN)` 和 `buttonISR()`
 -   **ISR 函數規則**: 中斷服務程序內僅設置 volatile 標誌，實際處理在主循環中進行
 
-### 狀態管理模式
+### 多狀態機管理
 
 ```cpp
-enum GameState { IDLE, COUNTING, FINISHED };
+enum GameState { IDLE, MUSIC_PLAYING, COUNTING, FINISHED };
 volatile GameState current_state = IDLE;
 ```
 
-所有狀態變更都通過中斷觸發，主循環根據狀態執行對應操作。
+狀態轉換流程：`IDLE` → `MUSIC_PLAYING` → `COUNTING` → `FINISHED` → `IDLE`
 
-### 顯示更新模式
+### 多感測器進球偵測系統
 
-使用標誌驅動的非阻塞更新：`volatile bool display_update = false;`
+-   **原有感測器**: A1(類比) + 引腳 7(數位)
+-   **新增 4 個感測器**: A2-A5(類比) + 引腳 8-11(數位)
+-   **防誤判機制**: 每個感測器獨立的 1 秒暫停偵測期 + 200ms 最小間隔
 
 ## 🔧 開發工作流程
 
 ### 建置與部署
 
 ```bash
-pio run                    # 編譯
-pio run --target upload    # 上傳到 Arduino
+pio run                    # 編譯專案
+pio run --target upload    # 上傳到 Arduino UNO
 pio device monitor         # 串列監控 (9600 波特率)
 ```
 
 ### 硬體連接標準
 
+**核心控制**:
+
 -   **按鈕**: 數位引腳 2 (INT0) + GND，使用內建上拉電阻
 -   **TM1637**: CLK → 引腳 3, DIO → 引腳 4
--   **電源**: 透過 USB 或外部 5V 供電
+
+**音效系統**:
+
+-   **MP3 模組**: TX → 引腳 5, RX → 引腳 6 (使用 SoftwareSerial)
+
+**進球偵測系統**:
+
+-   **主感測器**: A1(類比) + 引腳 7(數位)
+-   **擴展感測器**: A2-A5(類比) + 引腳 8-11(數位)
+-   **偵測邏輯**: `ir_digital_value == 0` 表示進球
 
 ## 📋 專案特定慣例
+
+### 音效系統控制
+
+```cpp
+// MP3 播放控制 - 使用 SoftwareSerial (引腳 5-6)
+mp3_start(uint8_t volume, uint8_t song);  // 音量 0-64，歌曲編號
+// 預設音效檔案：01=開場音樂, 02=進球音效, 03=結束音效
+```
 
 ### 計時精度配置
 
 ```cpp
 // Timer1 配置公式: 16MHz / 1024分頻 = 15625 Hz
 OCR1A = 15624;  // 計數到15624 = 1秒精確中斷
+const int GAME_TIME = 120;  // 遊戲時間2分鐘
+```
+
+### 多點進球偵測模式
+
+```cpp
+// 原有感測器 + 4個新增感測器的陣列處理
+for (int i = 0; i < 4; i++) {
+    ir_digital_values[i] = digitalRead(IR_DIGITAL_PINS[i]);
+    // 偵測邏輯：數位輸出 == 0 時表示進球
+}
 ```
 
 ### 防抖動標準
@@ -56,15 +88,17 @@ OCR1A = 15624;  // 計數到15624 = 1秒精確中斷
 
 ### 顯示格式慣例
 
--   **時間顯示**: MM:SS 格式使用 `showNumberDecEx()`
--   **狀態提示**: 自定義 7 段顯示碼 (如 "rEAd" = `{0x50, 0x79, 0x77, 0x5E}`)
--   **串列輸出**: 中文提示 + 英文狀態，9600 波特率
+-   **閒置狀態**: 12 位置燈光繞圈特效 (`displayRotatingLight()`)
+-   **計時期間**: TM1637 顯示當前分數，串列輸出時間與分數
+-   **音樂播放**: 顯示 "P-L-A-y" 提示訊息 (`{0x73, 0x38, 0x77, 0x6E}`)
+-   **高分顯示**: 分數超過 9999 時顯示 "H-i" (`{0x76, 0x06, 0x00, 0x00}`)
 
 ### 變數命名模式
 
--   **中斷相關**: 使用 `volatile` 關鍵字
--   **引腳定義**: `_PIN` 後綴常數
--   **狀態標誌**: `_active`, `_update` 後綴
+-   **中斷相關**: 使用 `volatile` 關鍵字，如 `volatile bool timer_active`
+-   **引腳定義**: `_PIN` 後綴常數，如 `IR_DIGITAL_PINS[4]`
+-   **感測器陣列**: 複數形式，如 `ir_digital_values[4]`, `balls_detected[4]`
+-   **時間戳變數**: `_until` 後綴，如 `detection_pause_until_new[4]`
 
 ## 🔗 依賴管理
 
@@ -104,9 +138,9 @@ Arduino UNO 僅 2KB SRAM，避免大型陣列或遞迴，優先使用常數和 v
 
 ### 新增遊戲模式
 
-1. 擴展 `GameState` 枚舉
+1. 擴展 `GameState` 枚舉 (當前: IDLE, MUSIC_PLAYING, COUNTING, FINISHED)
 2. 在 `displayCountdown()` 中添加新狀態處理
-3. 更新狀態轉換邏輯
+3. 更新狀態轉換邏輯和時序控制
 
 ### 調試最佳實踐
 
