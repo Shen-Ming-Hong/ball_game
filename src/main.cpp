@@ -26,7 +26,7 @@ volatile int countdown_time = 0;      // 倒數時間（秒）
 volatile bool timer_active = false;   // 計時器是否啟動
 volatile bool display_update = false; // 顯示更新標誌
 
-const int GAME_TIME = 90; // 遊戲時間（秒）- 1分30秒
+const int GAME_TIME = 10; // 遊戲時間（秒）- 1分30秒
 
 // 分數和 IR 感測器相關變數
 volatile int score = 0;                  // 進球分數
@@ -229,7 +229,7 @@ void startCountdown()
   music_start_time = millis();
 
   // 播放音樂01，音量80% (約128/255)
-  mp3_start(20, 1); // 80% 音量約為 51 (80% of 64)
+  mp3_start(64, 1); // 80% 音量約為 51 (80% of 64)
   Serial.println("開始播放開場音樂(01)！");
 
   // 顯示播放音樂提示
@@ -252,7 +252,7 @@ void displayCountdown()
   {
   case COUNTING:
   {
-    // 計算分鐘和秒數
+    // 計算分鐘和秒數（僅用於串列監視器）
     int minutes = countdown_time / 60;
     int seconds = countdown_time % 60;
 
@@ -266,9 +266,17 @@ void displayCountdown()
     Serial.print(" | 分數: ");
     Serial.println(score);
 
-    // 在 TM1637 顯示器上以 MM:SS 格式顯示
-    int display_value = minutes * 100 + seconds;                    // MMSS 格式
-    display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
+    // 在 TM1637 顯示器上只顯示分數（最多 4 位數）
+    if (score <= 9999)
+    {
+      display.showNumberDec(score, false, 4, 0); // 顯示分數，不顯示前導零
+    }
+    else
+    {
+      // 如果分數超過 4 位數，顯示 "Hi" (高分)
+      uint8_t high_score[] = {0x76, 0x06, 0x00, 0x00}; // H-i--
+      display.setSegments(high_score);
+    }
   }
   break;
 
@@ -284,11 +292,7 @@ void displayCountdown()
       end_sound_played = true;
     }
 
-    // 顯示 "0:00" 然後顯示分數
-    display.showNumberDecEx(0, 0b01000000, true, 4, 0); // 顯示 0:00
-    delay(1000);
-
-    // 顯示分數（最多 4 位數）
+    // 直接顯示最終分數（最多 4 位數）
     if (score <= 9999)
     {
       display.showNumberDec(score, false, 4, 0); // 顯示分數
