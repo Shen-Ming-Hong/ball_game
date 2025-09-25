@@ -53,7 +53,7 @@ volatile bool music_finished = false;         // 音樂播放完成標誌
 
 // 燈光特效相關變數
 unsigned long last_light_update = 0;   // 上次燈光更新時間
-const unsigned long LIGHT_DELAY = 200; // 燈光切換間隔(毫秒)
+const unsigned long LIGHT_DELAY = 100; // 燈光切換間隔(毫秒)
 int light_position = 0;                // 目前燈光位置 (0-11, 外圈一圈12個位置)
 
 // 函數宣告
