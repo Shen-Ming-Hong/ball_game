@@ -8,12 +8,12 @@ const int CLK_PIN = 3;    // TM1637 CLK 引腳
 const int DIO_PIN = 4;    // TM1637 DIO 引腳
 
 // MP3 模組引腳定義 (使用 SoftwareSerial)
-const int MP3_RX_PIN = 7; // MP3 模組 TX 連接到 Arduino 引腳 7
-const int MP3_TX_PIN = 8; // MP3 模組 RX 連接到 Arduino 引腳 8
+const int MP3_RX_PIN = 5; // MP3 模組 TX 連接到 Arduino 引腳 7
+const int MP3_TX_PIN = 6; // MP3 模組 RX 連接到 Arduino 引腳 8
 
 // TCRT5000 IR 感測器引腳
-const int IR_ANALOG_PIN = A0; // TCRT5000 類比輸出引腳 (AO)
-const int IR_DIGITAL_PIN = 5; // TCRT5000 數位輸出引腳 (DO)
+const int IR_ANALOG_PIN = A1; // TCRT5000 類比輸出引腳 (AO)
+const int IR_DIGITAL_PIN = 7; // TCRT5000 數位輸出引腳 (DO)
 
 // TM1637 顯示器物件
 TM1637Display display(CLK_PIN, DIO_PIN);
