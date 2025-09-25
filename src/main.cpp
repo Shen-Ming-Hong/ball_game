@@ -12,12 +12,8 @@ const int MP3_RX_PIN = 5; // MP3 模組 TX 連接到 Arduino 引腳 7
 const int MP3_TX_PIN = 6; // MP3 模組 RX 連接到 Arduino 引腳 8
 
 // TCRT5000 IR 感測器引腳（總共5個感測器）
-const int IR_ANALOG_PIN = A1; // 原有感測器類比輸出引腳 (AO)
-const int IR_DIGITAL_PIN = 7; // 原有感測器數位輸出引腳 (DO)
-
-// 新增的4個TCRT5000 IR 感測器引腳
-const int IR_ANALOG_PINS[4] = {A2, A3, A4, A5}; // 新增感測器類比輸出引腳
-const int IR_DIGITAL_PINS[4] = {8, 9, 10, 11};  // 新增感測器數位輸出引腳
+const int IR_ANALOG_PINS[5] = {A1, A2, A3, A4, A5}; // 所有感測器類比輸出引腳
+const int IR_DIGITAL_PINS[5] = {7, 8, 9, 10, 11};   // 所有感測器數位輸出引腳
 
 // TM1637 顯示器物件
 TM1637Display display(CLK_PIN, DIO_PIN);
@@ -35,17 +31,11 @@ const int GAME_TIME = 120; // 遊戲時間（秒）- 1分30秒
 // 分數和 IR 感測器相關變數
 volatile int score = 0; // 進球分數
 
-// 原有感測器讀值
-int ir_analog_value = 0;                 // 原有IR 感測器類比數值
-int ir_digital_value = 0;                // 原有IR 感測器數位數值
-volatile bool ball_detected = false;     // 原有球體偵測標誌
-unsigned long detection_pause_until = 0; // 原有暫停偵測直到此時間點
-
-// 新增感測器讀值陣列
-int ir_analog_values[4] = {0};                    // 新增4個IR 感測器類比數值
-int ir_digital_values[4] = {0};                   // 新增4個IR 感測器數位數值
-volatile bool balls_detected[4] = {false};        // 新增4個球體偵測標誌
-unsigned long detection_pause_until_new[4] = {0}; // 新增4個暫停偵測直到此時間點
+// 所有感測器讀值陣列（5個感測器）
+int ir_analog_values[5] = {0};                // 5個IR 感測器類比數值
+int ir_digital_values[5] = {0};               // 5個IR 感測器數位數值
+volatile bool balls_detected[5] = {false};    // 5個球體偵測標誌
+unsigned long detection_pause_until[5] = {0}; // 5個暫停偵測直到此時間點
 
 // 狀態枚舉
 enum GameState
@@ -92,15 +82,11 @@ void setup()
   // 設定按鈕引腳
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  // 設定 IR 感測器引腳
-  pinMode(IR_DIGITAL_PIN, INPUT); // 原有數位輸出引腳
-  // 類比引腳 (A1) 不需要 pinMode 設定
-
-  // 初始化新增的4個IR 感測器引腳
-  for (int i = 0; i < 4; i++)
+  // 設定所有 IR 感測器引腳
+  for (int i = 0; i < 5; i++)
   {
     pinMode(IR_DIGITAL_PINS[i], INPUT); // 數位輸出引腳
-    // 類比引腳 (A2-A5) 不需要 pinMode 設定
+    // 類比引腳 (A1-A5) 不需要 pinMode 設定
   }
 
   // 設定外部中斷
@@ -122,12 +108,8 @@ void setup()
 
 void loop()
 {
-  // 讀取原有 IR 感測器數值
-  ir_analog_value = analogRead(IR_ANALOG_PIN);    // 讀取類比數值 (0-1023)
-  ir_digital_value = digitalRead(IR_DIGITAL_PIN); // 讀取數位數值 (0 或 1)
-
-  // 讀取新增的4個 IR 感測器數值
-  for (int i = 0; i < 4; i++)
+  // 讀取所有 5 個 IR 感測器數值
+  for (int i = 0; i < 5; i++)
   {
     ir_analog_values[i] = analogRead(IR_ANALOG_PINS[i]);    // 讀取類比數值 (0-1023)
     ir_digital_values[i] = digitalRead(IR_DIGITAL_PINS[i]); // 讀取數位數值 (0 或 1)
@@ -255,15 +237,14 @@ void setupTimer1()
 void startCountdown()
 {
   // 重置遊戲狀態
-  score = 0;                 // 重置分數
-  detection_pause_until = 0; // 重置原有感測器暫停偵測時間
-  music_finished = false;    // 重置音樂完成標誌
+  score = 0;              // 重置分數
+  music_finished = false; // 重置音樂完成標誌
 
-  // 重置所有新增感測器狀態
-  for (int i = 0; i < 4; i++)
+  // 重置所有感測器狀態
+  for (int i = 0; i < 5; i++)
   {
-    detection_pause_until_new[i] = 0; // 重置暫停偵測時間
-    balls_detected[i] = false;        // 重置偵測標誌
+    detection_pause_until[i] = 0; // 重置暫停偵測時間
+    balls_detected[i] = false;    // 重置偵測標誌
   }
 
   // 設定為音樂播放狀態
@@ -362,50 +343,19 @@ void displayCountdown()
   }
 }
 
-// 檢查進球偵測（支援多個感測器）
+// 檢查進球偵測（支援5個感測器的統一處理）
 void checkBallDetection()
 {
   static unsigned long last_detection = 0; // 上次偵測時間
 
-  // 檢查原有感測器（第1個進球點）
-  if (millis() >= detection_pause_until)
+  // 統一處理所有5個感測器
+  for (int i = 0; i < 5; i++)
   {
-    bool ball_present = (ir_digital_value == 0); // 進球偵測邏輯：數位 = 0
-
-    if (ball_present && !ball_detected)
+    if (millis() >= detection_pause_until[i])
     {
-      // 防誤判：確保間隔至少 200ms
-      if (millis() - last_detection > 200)
-      {
-        ball_detected = true;
-        score++;
-        last_detection = millis();
+      bool ball_present = (ir_digital_values[i] == 0); // 進球偵測邏輯：數位 = 0
 
-        // 設定暫停偵測 1 秒
-        detection_pause_until = millis() + 1000;
-
-        // 播放進球音效02 (100%音量)
-        mp3_start(64, 2); // 100% 音量，播放第二首歌
-        Serial.print("進球！第1號進球點！播放音效02，目前分數: ");
-        Serial.println(score);
-      }
-    }
-
-    // 重置偵測標誌（當感測器數值回到正常範圍）
-    if (!ball_present && millis() >= detection_pause_until)
-    {
-      ball_detected = false;
-    }
-  }
-
-  // 檢查新增的4個感測器（第2-5個進球點）
-  for (int i = 0; i < 4; i++)
-  {
-    if (millis() >= detection_pause_until_new[i])
-    {
-      bool ball_present_new = (ir_digital_values[i] == 0); // 進球偵測邏輯：數位 = 0
-
-      if (ball_present_new && !balls_detected[i])
+      if (ball_present && !balls_detected[i])
       {
         // 防誤判：確保間隔至少 200ms
         if (millis() - last_detection > 200)
@@ -415,19 +365,19 @@ void checkBallDetection()
           last_detection = millis();
 
           // 設定暫停偵測 1 秒
-          detection_pause_until_new[i] = millis() + 1000;
+          detection_pause_until[i] = millis() + 1000;
 
           // 播放進球音效02 (100%音量)
           mp3_start(64, 2); // 100% 音量，播放第二首歌
           Serial.print("進球！第");
-          Serial.print(i + 2);
+          Serial.print(i + 1);
           Serial.print("號進球點！播放音效02，目前分數: ");
           Serial.println(score);
         }
       }
 
       // 重置偵測標誌（當感測器數值回到正常範圍）
-      if (!ball_present_new && millis() >= detection_pause_until_new[i])
+      if (!ball_present && millis() >= detection_pause_until[i])
       {
         balls_detected[i] = false;
       }
