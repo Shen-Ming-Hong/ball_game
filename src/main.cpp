@@ -328,7 +328,8 @@ void checkBallDetection()
   }
 
   // 進球偵測邏輯：類比 < 550 或數位 = 0 (使用 OR 條件)
-  bool ball_present = (ir_analog_value < 550) || (ir_digital_value == 0);
+  // bool ball_present = (ir_analog_value < 550) || (ir_digital_value == 0);
+  bool ball_present = (ir_digital_value == 0);
 
   if (ball_present && !ball_detected)
   {
