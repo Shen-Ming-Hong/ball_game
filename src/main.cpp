@@ -252,7 +252,7 @@ void startCountdown()
   music_start_time = millis();
 
   // 播放音樂01，音量80% (約128/255)
-  mp3_start(50, 1); // 80% 音量約為 51 (80% of 64)
+  mp3_start(64, 1); // 80% 音量約為 51 (80% of 64)
   Serial.println("開始播放開場音樂(01)！");
 
   // 顯示播放音樂提示
