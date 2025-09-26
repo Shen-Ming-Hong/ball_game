@@ -12,8 +12,9 @@ const int MP3_RX_PIN = 5; // MP3 模組 TX 連接到 Arduino 引腳 7
 const int MP3_TX_PIN = 6; // MP3 模組 RX 連接到 Arduino 引腳 8
 
 // TCRT5000 IR 感測器引腳（總共5個感測器）
-const int IR_ANALOG_PINS[5] = {A1, A2, A3, A4, A5}; // 所有感測器類比輸出引腳
-const int IR_DIGITAL_PINS[5] = {7, 8, 9, 10, 11};   // 所有感測器數位輸出引腳
+const int IR_ANALOG_PINS[5] = {A1, A2, A3, A4, A5};  // 所有感測器類比輸出引腳
+const int IR_DIGITAL_PINS[5] = {7, 8, 9, 10, 11};    // 所有感測器數位輸出引腳
+const int IR_SCORE_VALUES[5] = {50, 40, 30, 20, 10}; // 各感測器對應得分
 
 // TM1637 顯示器物件
 TM1637Display display(CLK_PIN, DIO_PIN);
@@ -361,7 +362,7 @@ void checkBallDetection()
         if (millis() - last_detection > 200)
         {
           balls_detected[i] = true;
-          score++;
+          score += IR_SCORE_VALUES[i];
           last_detection = millis();
 
           // 設定暫停偵測 1 秒
@@ -371,7 +372,9 @@ void checkBallDetection()
           mp3_start(64, 2); // 100% 音量，播放第二首歌
           Serial.print("進球！第");
           Serial.print(i + 1);
-          Serial.print("號進球點！播放音效02，目前分數: ");
+          Serial.print("號進球點！獲得");
+          Serial.print(IR_SCORE_VALUES[i]);
+          Serial.print("分，播放音效02，目前分數: ");
           Serial.println(score);
         }
       }
