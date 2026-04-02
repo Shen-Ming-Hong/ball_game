@@ -9,9 +9,14 @@ lib_deps/
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+.vscode/build/
+.vscode/libdeps/
 # Keep these VS Code files for team collaboration
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# 空輸出目錄
+src/output/
 
 # Build files
 build/
