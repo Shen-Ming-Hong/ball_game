@@ -27,7 +27,7 @@ volatile int countdown_time = 0;      // 倒數時間（秒）
 volatile bool timer_active = false;   // 計時器是否啟動
 volatile bool display_update = false; // 顯示更新標誌
 
-const int GAME_TIME = 120; // 遊戲時間（秒）- 1分30秒
+const int GAME_TIME = 60; // 計時視窗（秒）- 進球後60秒內無新進球則分數歸零
 
 // 分數和 IR 感測器相關變數
 volatile int score = 0; // 進球分數
@@ -77,21 +77,21 @@ void setup()
 {
   // 初始化串列通信
   Serial.begin(9600);
-  Serial.println("=== 槌球遊戲機倒數計時器 ===");
-  Serial.println("按下按鈕開始倒數計時！");
+  Serial.println("=== 槌球遊戲機 ===");
+  Serial.println("等待進球，60秒內無進球分數歸零");
 
   // 設定按鈕引腳
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  // 設定所有 IR 感測器引腳
+  // 設定所有 IR 感測器引腳（使用內建上拉電阻，避免感測器故障時浮空誤判）
   for (int i = 0; i < 5; i++)
   {
-    pinMode(IR_DIGITAL_PINS[i], INPUT); // 數位輸出引腳
+    pinMode(IR_DIGITAL_PINS[i], INPUT_PULLUP); // 數位輸出引腳，上拉保護
     // 類比引腳 (A1-A5) 不需要 pinMode 設定
   }
 
-  // 設定外部中斷
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, RISING);
+  // 設定外部中斷（DEBUG 暫停按鈕觸發）
+  // attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonISR, RISING);
 
   // 設定Timer1中斷
   setupTimer1();
@@ -116,32 +116,30 @@ void loop()
     ir_digital_values[i] = digitalRead(IR_DIGITAL_PINS[i]); // 讀取數位數值 (0 或 1)
   }
 
+  // [DEBUG] 每 500ms 印出所有 IR 感測器數值
+  static unsigned long last_ir_print = 0;
+  if (millis() - last_ir_print >= 500)
+  {
+    last_ir_print = millis();
+    Serial.print("[IR] ");
+    for (int i = 0; i < 5; i++)
+    {
+      Serial.print("S");
+      Serial.print(i + 1);
+      Serial.print(" A:");
+      Serial.print(ir_analog_values[i]);
+      Serial.print(" D:");
+      Serial.print(ir_digital_values[i]);
+      if (i < 4)
+        Serial.print(" | ");
+    }
+    Serial.println();
+  }
+
   // 在閒置狀態顯示燈光繞圈特效
   if (current_state == IDLE)
   {
     displayRotatingLight();
-  }
-
-  // 檢查音樂播放完成（僅在 MUSIC_PLAYING 狀態）
-  if (current_state == MUSIC_PLAYING)
-  {
-    if (millis() - music_start_time >= MUSIC_01_DURATION)
-    {
-      music_finished = true;
-      // 音樂播放完成，開始倒數計時
-      countdown_time = GAME_TIME;
-      timer_active = true;
-      current_state = COUNTING;
-      display_update = true;
-
-      Serial.println("開場音樂播放完成，開始倒數計時！");
-
-      // 立即顯示初始倒數時間 (分:秒格式)
-      int minutes = countdown_time / 60;
-      int seconds = countdown_time % 60;
-      int display_value = minutes * 100 + seconds;                    // MMSS 格式
-      display.showNumberDecEx(display_value, 0b01000000, true, 4, 0); // 顯示冒號
-    }
   }
 
   // 檢查是否需要更新顯示
@@ -151,8 +149,8 @@ void loop()
     displayCountdown();
   }
 
-  // 檢查進球偵測（僅在計時期間）
-  if (current_state == COUNTING)
+  // 檢查進球偵測（IDLE 等待首球自動開始；COUNTING 進球重置計時視窗）
+  if (current_state == IDLE || current_state == COUNTING)
   {
     checkBallDetection();
   }
@@ -160,13 +158,20 @@ void loop()
   // 檢查計時是否結束
   if (current_state == FINISHED)
   {
-    // 延遲後回到準備狀態
+    // 延遲後分數歸零，回到等待狀態
     delay(2000);
 
+    score = 0;
+    for (int i = 0; i < 5; i++)
+    {
+      balls_detected[i] = false;
+      detection_pause_until[i] = 0;
+    }
     current_state = IDLE;
     // 重置燈光特效變數
     light_position = 0;
     last_light_update = millis();
+    Serial.println("[分數歸零] 回到等待狀態");
   }
 
   // 主循環可以在這裡添加其他非時間關鍵的功能
@@ -253,8 +258,8 @@ void startCountdown()
   music_start_time = millis();
 
   // 播放音樂01，音量80% (約128/255)
-  mp3_start(64, 1); // 80% 音量約為 51 (80% of 64)
-  Serial.println("開始播放開場音樂(01)！");
+  // mp3_start(64, 1); // [DEBUG] 停用音效
+  Serial.println("[DEBUG] 開場音樂已停用");
 
   // 顯示播放音樂提示
   uint8_t play_msg[] = {0x73, 0x38, 0x77, 0x6E}; // P-L-A-y
@@ -311,8 +316,8 @@ void displayCountdown()
     if (!end_sound_played)
     {
       // 播放結束音效03 (100%音量)
-      mp3_start(64, 3); // 100% 音量，播放第三首歌
-      Serial.println("遊戲結束！播放結束音效03");
+      mp3_start(64, 3); // 結束音效
+      Serial.println("[結束] 播放結束音效");
       end_sound_played = true;
     }
 
@@ -344,17 +349,18 @@ void displayCountdown()
   }
 }
 
-// 檢查進球偵測（支援5個感測器的統一處理）
+// 檢查進球偵測（支援5個感測器）
+// - IDLE 狀態偵測到首球 → 自動進入 COUNTING，啟動 60 秒視窗
+// - COUNTING 狀態偵測到球 → 分數累加，並重置 60 秒視窗
 void checkBallDetection()
 {
   static unsigned long last_detection = 0; // 上次偵測時間
 
-  // 統一處理所有5個感測器
   for (int i = 0; i < 5; i++)
   {
     if (millis() >= detection_pause_until[i])
     {
-      bool ball_present = (ir_digital_values[i] == 0); // 進球偵測邏輯：數位 = 0
+      bool ball_present = (ir_digital_values[i] == 0); // 數位 LOW = 進球
 
       if (ball_present && !balls_detected[i])
       {
@@ -364,23 +370,41 @@ void checkBallDetection()
           balls_detected[i] = true;
           score += IR_SCORE_VALUES[i];
           last_detection = millis();
+          detection_pause_until[i] = millis() + 1000; // 1 秒暫停偵測
 
-          // 設定暫停偵測 1 秒
-          detection_pause_until[i] = millis() + 1000;
+          if (current_state == IDLE)
+          {
+            // 首球：自動開始計時
+            countdown_time = GAME_TIME;
+            timer_active = true;
+            current_state = COUNTING;
+            display_update = true;
+            Serial.println("[首球] 開始 60 秒計時視窗");
+          }
+          else if (current_state == COUNTING)
+          {
+            // 後續進球：重置 60 秒視窗
+            noInterrupts();
+            countdown_time = GAME_TIME;
+            interrupts();
+            display_update = true;
+          }
 
-          // 播放進球音效02 (100%音量)
-          mp3_start(64, 2); // 100% 音量，播放第二首歌
-          Serial.print("進球！第");
+          mp3_start(64, 2); // 進球音效
+          Serial.print("[進球] S");
           Serial.print(i + 1);
-          Serial.print("號進球點！獲得");
+          Serial.print(" +");
           Serial.print(IR_SCORE_VALUES[i]);
-          Serial.print("分，播放音效02，目前分數: ");
-          Serial.println(score);
+          Serial.print(" 分，總分: ");
+          Serial.print(score);
+          Serial.print("，剩餘: ");
+          Serial.print(countdown_time);
+          Serial.println(" 秒");
         }
       }
 
-      // 重置偵測標誌（當感測器數值回到正常範圍）
-      if (!ball_present && millis() >= detection_pause_until[i])
+      // 重置偵測標誌
+      if (!ball_present)
       {
         balls_detected[i] = false;
       }
